@@ -16,11 +16,30 @@
 // same x per share, so arbitrary-length secrets work.
 namespace shamir {
 
-// Seedable byte source — reproducible in tests, random_device in the app.
-struct Rng {
+// Where the polynomial coefficients come from.
+struct ByteSource {
+    virtual std::uint8_t byte() = 0;
+    virtual ~ByteSource() = default;
+};
+
+// Deterministic, seedable — for reproducible tests and the demo. NOT secure.
+struct SeededRng : ByteSource {
     std::mt19937_64 eng;
-    explicit Rng(std::uint64_t seed) : eng(seed) {}
-    std::uint8_t byte() { return static_cast<std::uint8_t>(eng() & 0xFF); }
+    explicit SeededRng(std::uint64_t seed) : eng(seed) {}
+    std::uint8_t byte() override { return static_cast<std::uint8_t>(eng() & 0xFF); }
+};
+
+// OS cryptographic RNG (/dev/urandom on POSIX, rand_s on Windows) — for real use.
+class SecureRng : public ByteSource {
+public:
+    SecureRng();
+    ~SecureRng() override;
+    std::uint8_t byte() override;
+private:
+    void refill();
+    unsigned char buf_[64];
+    std::size_t pos_ = sizeof(buf_);
+    void* handle_ = nullptr;        // FILE* on POSIX; unused on Windows
 };
 
 struct Share {
@@ -30,7 +49,7 @@ struct Share {
 
 // Split `secret` into `n` shares with threshold `k`. Requires 1 <= k <= n <= 255
 // and a non-empty secret.
-std::vector<Share> split(const std::vector<std::uint8_t>& secret, int k, int n, Rng& rng);
+std::vector<Share> split(const std::vector<std::uint8_t>& secret, int k, int n, ByteSource& rng);
 
 // Reconstruct the secret from >= k shares (with distinct x's). Fewer than k
 // shares will "succeed" but yield the wrong secret — that's the point.

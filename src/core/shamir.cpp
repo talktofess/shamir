@@ -38,7 +38,7 @@ std::uint8_t interpolateAtZero(const std::vector<Share>& shares, std::size_t byt
 
 } // namespace
 
-std::vector<Share> split(const std::vector<std::uint8_t>& secret, int k, int n, Rng& rng) {
+std::vector<Share> split(const std::vector<std::uint8_t>& secret, int k, int n, ByteSource& rng) {
     if (k < 1 || n < 1 || k > n || n > 255) {
         throw std::invalid_argument("require 1 <= k <= n <= 255");
     }

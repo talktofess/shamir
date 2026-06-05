@@ -1,7 +1,9 @@
 #include <string>
 #include <vector>
 
+#include "core/format.hpp"
 #include "core/gf256.hpp"
+#include "core/sha256.hpp"
 #include "core/shamir.hpp"
 #include "microtest.hpp"
 
@@ -68,7 +70,7 @@ TEST("div is multiply-by-inverse; pow obeys group order") {
 // --------------------------------------------------------------- Shamir -----
 
 TEST("any K of N shares reconstruct the secret (all subsets)") {
-    shamir::Rng rng(12345);
+    shamir::SeededRng rng(12345);
     const Bytes secret = bytes("hello!");
     const int k = 3, n = 5;
     auto shares = shamir::split(secret, k, n, rng);
@@ -83,7 +85,7 @@ TEST("any K of N shares reconstruct the secret (all subsets)") {
 }
 
 TEST("more than K shares still reconstruct") {
-    shamir::Rng rng(7);
+    shamir::SeededRng rng(7);
     const Bytes secret = bytes("redundant");
     auto shares = shamir::split(secret, 3, 6, rng);
     CHECK(shamir::combine(shares) == secret);                 // all 6
@@ -91,7 +93,7 @@ TEST("more than K shares still reconstruct") {
 }
 
 TEST("fewer than K shares do NOT recover the secret") {
-    shamir::Rng rng(99);
+    shamir::SeededRng rng(99);
     const Bytes secret = bytes("topsecret");
     const int k = 4, n = 6;
     auto shares = shamir::split(secret, k, n, rng);
@@ -101,7 +103,7 @@ TEST("fewer than K shares do NOT recover the secret") {
 }
 
 TEST("k = 1 makes every share equal to the secret") {
-    shamir::Rng rng(1);
+    shamir::SeededRng rng(1);
     const Bytes secret = bytes("AB");
     auto shares = shamir::split(secret, 1, 4, rng);
     for (const auto& s : shares) {
@@ -111,14 +113,14 @@ TEST("k = 1 makes every share equal to the secret") {
 }
 
 TEST("k = n works") {
-    shamir::Rng rng(2);
+    shamir::SeededRng rng(2);
     const Bytes secret = bytes("exactly");
     auto shares = shamir::split(secret, 4, 4, rng);
     CHECK(shamir::combine(shares) == secret);
 }
 
 TEST("shares use distinct x = 1..n") {
-    shamir::Rng rng(3);
+    shamir::SeededRng rng(3);
     auto shares = shamir::split(bytes("x"), 2, 5, rng);
     for (std::size_t i = 0; i < shares.size(); ++i) {
         CHECK_EQ(shares[i].x, static_cast<int>(i + 1));
@@ -126,14 +128,14 @@ TEST("shares use distinct x = 1..n") {
 }
 
 TEST("handles 0x00 and 0xFF bytes in the secret") {
-    shamir::Rng rng(55);
+    shamir::SeededRng rng(55);
     const Bytes secret = {0x00, 0xFF, 0x00, 0x7F, 0xFF};
     auto shares = shamir::split(secret, 3, 5, rng);
     CHECK(shamir::combine(subset(shares, 0b10110)) == secret);
 }
 
 TEST("same seed produces identical shares") {
-    shamir::Rng a(42), b(42);
+    shamir::SeededRng a(42), b(42);
     auto sa = shamir::split(bytes("deterministic"), 3, 5, a);
     auto sb = shamir::split(bytes("deterministic"), 3, 5, b);
     CHECK_EQ(sa.size(), sb.size());
@@ -144,7 +146,7 @@ TEST("same seed produces identical shares") {
 }
 
 TEST("invalid parameters are rejected") {
-    shamir::Rng rng(0);
+    shamir::SeededRng rng(0);
     bool threw = false;
     try { shamir::split(bytes("x"), 0, 3, rng); } catch (const std::exception&) { threw = true; }
     CHECK(threw);
@@ -153,5 +155,106 @@ TEST("invalid parameters are rejected") {
     CHECK(threw);
     threw = false;
     try { shamir::split(Bytes{}, 2, 3, rng); } catch (const std::exception&) { threw = true; }      // empty
+    CHECK(threw);
+}
+
+// --------------------------------------------------------------- SHA-256 ----
+
+TEST("sha-256 matches known test vectors") {
+    CHECK_EQ(sha256::hex(sha256::hash(bytes(""))),
+             std::string("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
+    CHECK_EQ(sha256::hex(sha256::hash(bytes("abc"))),
+             std::string("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+    CHECK_EQ(sha256::hex(sha256::hash(bytes("The quick brown fox jumps over the lazy dog"))),
+             std::string("d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592"));
+}
+
+// --------------------------------------------------------------- SecureRng --
+
+TEST("split with the OS secure RNG still reconstructs") {
+    shamir::SecureRng rng;
+    const Bytes secret = bytes("from OS entropy");
+    auto shares = shamir::split(secret, 3, 5, rng);
+    CHECK(shamir::combine(subset(shares, 0b10101)) == secret);   // shares 0,2,4
+}
+
+// --------------------------------------------------------------- format -----
+
+TEST("share string round-trips through encode/parse") {
+    shamir::SeededRng rng(7);
+    const Bytes secret = bytes("format me");
+    auto shares = shamir::split(secret, 3, 5, rng);
+    auto commit = sha256::hash(secret);
+
+    shamir::ParsedShare p = shamir::parseShare(shamir::encodeShare(shares[1], 3, commit));
+    CHECK_EQ(p.k, 3);
+    CHECK_EQ(static_cast<int>(p.share.x), static_cast<int>(shares[1].x));
+    CHECK(p.share.y == shares[1].y);
+    CHECK(p.commitment == commit);
+}
+
+TEST("reconstruct recovers and verifies the commitment") {
+    shamir::SeededRng rng(8);
+    const Bytes secret = bytes("verify me please");
+    auto shares = shamir::split(secret, 3, 5, rng);
+    auto commit = sha256::hash(secret);
+
+    std::vector<std::string> strs;
+    for (int i : {0, 2, 4}) strs.push_back(shamir::encodeShare(shares[i], 3, commit));
+    CHECK(shamir::reconstruct(strs) == secret);
+}
+
+TEST("reconstruct detects a tampered share") {
+    shamir::SeededRng rng(9);
+    const Bytes secret = bytes("dont touch this");
+    auto shares = shamir::split(secret, 3, 5, rng);
+    auto commit = sha256::hash(secret);
+
+    auto tampered = shares[0];
+    tampered.y[0] ^= 0xFF;                       // corrupt the share bytes, keep the commitment
+    std::vector<std::string> strs = {
+        shamir::encodeShare(tampered, 3, commit),
+        shamir::encodeShare(shares[1], 3, commit),
+        shamir::encodeShare(shares[2], 3, commit),
+    };
+    bool threw = false;
+    try { shamir::reconstruct(strs); } catch (const std::exception&) { threw = true; }
+    CHECK(threw);
+}
+
+TEST("reconstruct rejects shares that disagree on the commitment") {
+    shamir::SeededRng rng(10);
+    auto shares = shamir::split(bytes("abcd"), 2, 4, rng);
+    auto good = sha256::hash(bytes("abcd"));
+    auto other = sha256::hash(bytes("evil"));
+    std::vector<std::string> strs = {
+        shamir::encodeShare(shares[0], 2, good),
+        shamir::encodeShare(shares[1], 2, other),
+    };
+    bool threw = false;
+    try { shamir::reconstruct(strs); } catch (const std::exception&) { threw = true; }
+    CHECK(threw);
+}
+
+TEST("reconstruct rejects too few shares") {
+    shamir::SeededRng rng(11);
+    const Bytes secret = bytes("need three");
+    auto shares = shamir::split(secret, 3, 5, rng);
+    auto commit = sha256::hash(secret);
+    std::vector<std::string> strs = {
+        shamir::encodeShare(shares[0], 3, commit),
+        shamir::encodeShare(shares[1], 3, commit),   // only 2 < k=3
+    };
+    bool threw = false;
+    try { shamir::reconstruct(strs); } catch (const std::exception&) { threw = true; }
+    CHECK(threw);
+}
+
+TEST("parseShare rejects malformed input") {
+    bool threw = false;
+    try { shamir::parseShare("garbage"); } catch (const std::exception&) { threw = true; }
+    CHECK(threw);
+    threw = false;
+    try { shamir::parseShare("SSS1.3.1.zz.00"); } catch (const std::exception&) { threw = true; }  // bad hex
     CHECK(threw);
 }

@@ -4,11 +4,18 @@ project(shamir LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Pure, dependency-free core: the finite field + the secret-sharing scheme.
+# Pure, dependency-free core: finite field, secret sharing, SHA-256, the secure
+# RNG, and the share format.
 add_library(shamir_core STATIC
     src/core/gf256.cpp
-    src/core/shamir.cpp)
+    src/core/shamir.cpp
+    src/core/secure_rng.cpp
+    src/core/sha256.cpp
+    src/core/format.cpp)
 target_include_directories(shamir_core PUBLIC src)
+if(WIN32)
+    target_link_libraries(shamir_core PUBLIC advapi32)   # CryptGenRandom
+endif()
 
 # Test suite (no dependencies — builds and runs anywhere).
 enable_testing()
@@ -17,7 +24,7 @@ target_link_libraries(shamir_tests PRIVATE shamir_core)
 target_include_directories(shamir_tests PRIVATE tests src)
 add_test(NAME core COMMAND shamir_tests)
 
-# The terminal demo.
-add_executable(shamir_demo src/main.cpp)
-target_link_libraries(shamir_demo PRIVATE shamir_core)
-target_include_directories(shamir_demo PRIVATE src)
+# The CLI: split / combine / demo.
+add_executable(shamir src/main.cpp)
+target_link_libraries(shamir PRIVATE shamir_core)
+target_include_directories(shamir PRIVATE src)
