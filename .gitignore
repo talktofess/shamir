@@ -1,0 +1,7 @@
+build/
+*.o
+*.obj
+*.exe
+.cache/
+compile_commands.json
+COMMIT_MSG.txt
