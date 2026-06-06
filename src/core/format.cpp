@@ -116,4 +116,26 @@ std::vector<std::uint8_t> reconstruct(const std::vector<std::string>& shareStrin
     return secret;
 }
 
+std::vector<std::uint8_t> reconstructText(const std::string& text) {
+    std::vector<std::string> shares;
+    std::string line;
+    auto flush = [&]() {
+        std::size_t a = line.find_first_not_of(" \t\r");
+        if (a != std::string::npos) {
+            std::size_t b = line.find_last_not_of(" \t\r");
+            std::string t = line.substr(a, b - a + 1);
+            if (!t.empty() && t[0] != '#') shares.push_back(t);
+        }
+        line.clear();
+    };
+    for (char c : text) {
+        if (c == '\n') flush();
+        else line += c;
+    }
+    flush();
+
+    if (shares.empty()) throw std::invalid_argument("no share lines found");
+    return reconstruct(shares);
+}
+
 } // namespace shamir

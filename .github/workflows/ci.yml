@@ -30,3 +30,11 @@ jobs:
           out=$(./build/shamir combine $(sed -n '1p;3p' shares.txt))
           echo "$out"
           echo "$out" | grep -q 'ci secret'
+
+      - name: Binary file round-trip
+        run: |
+          head -c 64 /dev/urandom > secret.bin
+          ./build/shamir split-file secret.bin 3 5 > shares.txt
+          sed -n '1p;2p;4p;6p' shares.txt > three.txt   # comment + 3 of 5 shares
+          ./build/shamir combine-file three.txt > out.bin
+          cmp secret.bin out.bin && echo "binary round-trip OK"

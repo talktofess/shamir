@@ -32,4 +32,8 @@ ParsedShare parseShare(const std::string& text);   // throws std::invalid_argume
 // shares, or a failed verification (tampering / wrong shares).
 std::vector<std::uint8_t> reconstruct(const std::vector<std::string>& shareStrings);
 
+// Reconstruct from a block of text with one share per line; blank lines and lines
+// starting with '#' are ignored (so the output of `split` pipes straight in).
+std::vector<std::uint8_t> reconstructText(const std::string& text);
+
 } // namespace shamir

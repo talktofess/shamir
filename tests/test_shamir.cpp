@@ -239,6 +239,16 @@ TEST("reconstruct rejects shares that disagree on the commitment") {
     CHECK(threw);
 }
 
+TEST("reconstructText ignores comments and blank lines") {
+    shamir::SeededRng rng(30);
+    const Bytes secret = bytes("from a file");
+    auto shares = shamir::split(secret, 3, 5, rng);
+    auto commit = sha256::hash(secret);
+    std::string text = "# 3-of-5 shares\n\n";
+    for (int i : {0, 2, 4}) text += shamir::encodeShare(shares[i], 3, commit) + "\n";
+    CHECK(shamir::reconstructText(text) == secret);
+}
+
 TEST("reconstruct rejects too few shares") {
     shamir::SeededRng rng(11);
     const Bytes secret = bytes("need three");

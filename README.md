@@ -3,7 +3,7 @@
 [![CI](https://github.com/talktofess/shamir/actions/workflows/ci.yml/badge.svg)](https://github.com/talktofess/shamir/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++](https://img.shields.io/badge/C%2B%2B-14-00599C.svg)](https://isocpp.org/)
-![Tests](https://img.shields.io/badge/tests-27%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-28%20passing-brightgreen.svg)
 
 Split a secret into **N shares** such that **any K of them reconstruct it**, but
 **any K−1 reveal absolutely nothing** — every possible secret stays equally
@@ -14,7 +14,7 @@ splitting, and "3-of-5 board members must agree" key custody.
 A pure, dependency-free, unit-tested core over **GF(2⁸)**, with a **from-scratch
 SHA-256** commitment so tampering is detected, an **OS cryptographic RNG**, a
 self-describing **share format**, **BIP-39-style word shares** you can write down,
-and a `split` / `combine` CLI.
+and a CLI that works on text or **binary key files**.
 
 ```
 $ shamir demo
@@ -90,7 +90,7 @@ core/
   sha256.{hpp,cpp}  SHA-256 from scratch — the secret commitment
   format.{hpp,cpp}  encode/parse share strings; reconstruct() = combine + verify
   mnemonic.{hpp,cpp}  256-word encoding of a share, with a checksum
-src/main.cpp        the split / combine / split-words / combine-words / demo CLI
+src/main.cpp        CLI: split[-file|-words] / combine[-file|-words] / demo
 tests/test_shamir.cpp  the signature deliverable
 ```
 
@@ -98,7 +98,7 @@ tests/test_shamir.cpp  the signature deliverable
 
 `combine()` working is table stakes; the interesting part is proving the
 *threshold*, that the field maths is exact, and that tampering is caught. The
-suite (27 tests) covers:
+suite (28 tests) covers:
 
 - **the field** — every non-zero element has an inverse (which only holds if the
   generator is primitive), `mul`/`div`/`inv` agree, `a^255 = 1`, distributivity;
@@ -112,18 +112,30 @@ suite (27 tests) covers:
 - **word shares** — exactly 256 unique words; share→words→share round-trips;
   decoding is case-insensitive; the checksum catches a wrong word; unknown words
   and too-few shares are rejected;
+- **text/binary I/O** — `reconstructText` ignores comment/blank lines so
+  `split-file | combine-file` pipes cleanly (CI runs a binary round-trip on random
+  bytes including `0x00`);
 - **edges** — `k=1`, `k=n`, secrets with `0x00`/`0xFF`, determinism, bad params.
 
 ```bash
 cmake -B build && cmake --build build
-ctest --test-dir build --output-on-failure   # 27/27
+ctest --test-dir build --output-on-failure   # 28/28
 
 ./build/shamir demo                                  # the walkthrough above
 ./build/shamir split "correct horse" 3 5             # -> 5 share strings (OS randomness)
 ./build/shamir combine SSS1.3.2... SSS1.3.4... SSS1.3.5...   # -> secret, verified
 ./build/shamir split-words "correct horse" 3 5       # -> 5 word-share lines
 ./build/shamir combine-words "<words>" "<words>" "<words>"  # -> secret
+
+# binary secrets (keys, wallet seeds) — read a file/stdin, write raw bytes:
+./build/shamir split-file wallet.key 3 5 > shares.txt
+./build/shamir combine-file shares.txt > wallet.key     # byte-identical
+cat key.bin | ./build/shamir split-file - 2 3 | ./build/shamir combine-file -
 ```
+
+Command-line args can't hold binary (NUL bytes), so `split-file` / `combine-file`
+are the path for real keys: they read the secret from a file or `-` (stdin) and
+write the recovered secret as raw bytes to stdout.
 
 Verified locally with `g++ -std=c++14 -Wall -Wextra` and in CI on every push
 (CI also runs an end-to-end `split | combine` round-trip).
