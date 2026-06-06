@@ -11,7 +11,8 @@ add_library(shamir_core STATIC
     src/core/shamir.cpp
     src/core/secure_rng.cpp
     src/core/sha256.cpp
-    src/core/format.cpp)
+    src/core/format.cpp
+    src/core/mnemonic.cpp)
 target_include_directories(shamir_core PUBLIC src)
 if(WIN32)
     target_link_libraries(shamir_core PUBLIC advapi32)   # CryptGenRandom

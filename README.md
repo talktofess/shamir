@@ -3,7 +3,7 @@
 [![CI](https://github.com/talktofess/shamir/actions/workflows/ci.yml/badge.svg)](https://github.com/talktofess/shamir/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++](https://img.shields.io/badge/C%2B%2B-14-00599C.svg)](https://isocpp.org/)
-![Tests](https://img.shields.io/badge/tests-21%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-27%20passing-brightgreen.svg)
 
 Split a secret into **N shares** such that **any K of them reconstruct it**, but
 **any K−1 reveal absolutely nothing** — every possible secret stays equally
@@ -13,7 +13,8 @@ splitting, and "3-of-5 board members must agree" key custody.
 
 A pure, dependency-free, unit-tested core over **GF(2⁸)**, with a **from-scratch
 SHA-256** commitment so tampering is detected, an **OS cryptographic RNG**, a
-self-describing **share format**, and a `split` / `combine` CLI.
+self-describing **share format**, **BIP-39-style word shares** you can write down,
+and a `split` / `combine` CLI.
 
 ```
 $ shamir demo
@@ -39,6 +40,23 @@ $ shamir demo
 
 A share string is `SSS1.<k>.<x>.<hex y>.<hex SHA-256 commitment>` — self-contained,
 so a holder needs nothing else to reconstruct *and* verify.
+
+### Word shares (write them on paper)
+
+Hex is awful to transcribe, so a share can also be rendered as words from a
+built-in 256-word list (one word per byte, plus a 2-word checksum so a wrong or
+reordered word is caught):
+
+```
+$ shamir split-words "trust no one" 2 4
+bi be pin zay hor fad sar so vin lin mub lor nan bay den lo
+bi bi rub foo nee vor zoo gon ge bor tad bo kee say tay jin
+bi bo moo pa han ru ben tad ro gan he gay li vay zan gu
+bi bu tor zar no din for dan za so boo too gad had day va
+
+$ shamir combine-words "bi be pin zay ... lo" "bi bo moo pa ... gu"
+secret : "trust no one"
+```
 
 ## How it works
 
@@ -71,7 +89,8 @@ core/
                     interpolates at x=0; SeededRng (tests) + SecureRng (OS CSPRNG)
   sha256.{hpp,cpp}  SHA-256 from scratch — the secret commitment
   format.{hpp,cpp}  encode/parse share strings; reconstruct() = combine + verify
-src/main.cpp        the split / combine / demo CLI
+  mnemonic.{hpp,cpp}  256-word encoding of a share, with a checksum
+src/main.cpp        the split / combine / split-words / combine-words / demo CLI
 tests/test_shamir.cpp  the signature deliverable
 ```
 
@@ -79,7 +98,7 @@ tests/test_shamir.cpp  the signature deliverable
 
 `combine()` working is table stakes; the interesting part is proving the
 *threshold*, that the field maths is exact, and that tampering is caught. The
-suite (21 tests) covers:
+suite (27 tests) covers:
 
 - **the field** — every non-zero element has an inverse (which only holds if the
   generator is primitive), `mul`/`div`/`inv` agree, `a^255 = 1`, distributivity;
@@ -90,15 +109,20 @@ suite (21 tests) covers:
 - **tamper detection** — `reconstruct()` rejects a corrupted share, shares that
   disagree on the commitment, too few shares, and malformed strings;
 - **the secure RNG** — splitting with the OS CSPRNG still round-trips;
+- **word shares** — exactly 256 unique words; share→words→share round-trips;
+  decoding is case-insensitive; the checksum catches a wrong word; unknown words
+  and too-few shares are rejected;
 - **edges** — `k=1`, `k=n`, secrets with `0x00`/`0xFF`, determinism, bad params.
 
 ```bash
 cmake -B build && cmake --build build
-ctest --test-dir build --output-on-failure   # 21/21
+ctest --test-dir build --output-on-failure   # 27/27
 
 ./build/shamir demo                                  # the walkthrough above
 ./build/shamir split "correct horse" 3 5             # -> 5 share strings (OS randomness)
 ./build/shamir combine SSS1.3.2... SSS1.3.4... SSS1.3.5...   # -> secret, verified
+./build/shamir split-words "correct horse" 3 5       # -> 5 word-share lines
+./build/shamir combine-words "<words>" "<words>" "<words>"  # -> secret
 ```
 
 Verified locally with `g++ -std=c++14 -Wall -Wextra` and in CI on every push

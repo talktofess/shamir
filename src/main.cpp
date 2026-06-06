@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "core/format.hpp"
+#include "core/mnemonic.hpp"
 #include "core/sha256.hpp"
 #include "core/shamir.hpp"
 
@@ -75,6 +76,37 @@ int cmdCombine(const std::vector<std::string>& shareStrings) {
     }
 }
 
+// ------------------------------------------------------- word (mnemonic) -----
+
+int cmdSplitWords(const std::string& secretStr, int k, int n) {
+    const Bytes secret = bytesOf(secretStr);
+    try {
+        shamir::SecureRng rng;
+        auto shares = shamir::split(secret, k, n, rng);
+        std::printf("# %d-of-%d word shares. Write each line down; any %d reconstruct\n", k, n, k);
+        std::printf("# the secret with `shamir combine-words \"<words>\" ...`.\n");
+        for (const auto& s : shares) {
+            std::printf("%s\n", shamir::toMnemonic(s, k).c_str());
+        }
+        return 0;
+    } catch (const std::exception& e) {
+        std::printf("error: %s\n", e.what());
+        return 1;
+    }
+}
+
+int cmdCombineWords(const std::vector<std::string>& mnemonics) {
+    try {
+        Bytes secret = shamir::combineMnemonics(mnemonics);
+        std::printf("secret : \"%s\"\n", printable(secret).c_str());
+        std::printf("hex    : %s\n", hexOf(secret).c_str());
+        return 0;
+    } catch (const std::exception& e) {
+        std::printf("could not reconstruct: %s\n", e.what());
+        return 1;
+    }
+}
+
 // ------------------------------------------------------------------- demo ----
 
 std::vector<shamir::Share> pick(const std::vector<shamir::Share>& all, int count,
@@ -119,15 +151,19 @@ int cmdDemo() {
     std::printf("\n  with only %d shares %s (below threshold) :\n", k - 1, braces(fewXs).c_str());
     std::printf("    -> \"%s\"   [WRONG]   nothing about the secret leaks\n",
                 printable(shamir::combine(tooFew)).c_str());
-    std::printf("\n");
+
+    std::printf("\n  share #1 as transcribable words (BIP-39-style, checksummed):\n");
+    std::printf("    %s\n\n", shamir::toMnemonic(shares[0], k).c_str());
     return 0;
 }
 
 void usage(const char* prog) {
     std::printf("usage:\n");
-    std::printf("  %s split \"<secret>\" <k> <n>     split into n shares, threshold k\n", prog);
-    std::printf("  %s combine <share> <share> ...  reconstruct + verify from shares\n", prog);
-    std::printf("  %s demo                          a reproducible walkthrough\n", prog);
+    std::printf("  %s split \"<secret>\" <k> <n>        split into n shares, threshold k\n", prog);
+    std::printf("  %s combine <share> <share> ...     reconstruct + verify from shares\n", prog);
+    std::printf("  %s split-words \"<secret>\" <k> <n>  split into transcribable word shares\n", prog);
+    std::printf("  %s combine-words \"<words>\" ...     reconstruct from word shares\n", prog);
+    std::printf("  %s demo                             a reproducible walkthrough\n", prog);
 }
 
 } // namespace
@@ -142,6 +178,14 @@ int main(int argc, char** argv) {
     if (cmd == "combine") {
         if (argc < 3) { usage(argv[0]); return 1; }
         return cmdCombine(std::vector<std::string>(argv + 2, argv + argc));
+    }
+    if (cmd == "split-words") {
+        if (argc < 5) { usage(argv[0]); return 1; }
+        return cmdSplitWords(argv[2], std::atoi(argv[3]), std::atoi(argv[4]));
+    }
+    if (cmd == "combine-words") {
+        if (argc < 3) { usage(argv[0]); return 1; }
+        return cmdCombineWords(std::vector<std::string>(argv + 2, argv + argc));
     }
     if (cmd == "demo") {
         return cmdDemo();

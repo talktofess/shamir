@@ -1,8 +1,11 @@
 #include <string>
 #include <vector>
 
+#include <set>
+
 #include "core/format.hpp"
 #include "core/gf256.hpp"
+#include "core/mnemonic.hpp"
 #include "core/sha256.hpp"
 #include "core/shamir.hpp"
 #include "microtest.hpp"
@@ -257,4 +260,68 @@ TEST("parseShare rejects malformed input") {
     threw = false;
     try { shamir::parseShare("SSS1.3.1.zz.00"); } catch (const std::exception&) { threw = true; }  // bad hex
     CHECK(threw);
+}
+
+// --------------------------------------------------------------- mnemonic ---
+
+TEST("the wordlist has exactly 256 unique words") {
+    const auto& w = shamir::wordlist();
+    CHECK_EQ(w.size(), 256);
+    std::set<std::string> uniq(w.begin(), w.end());
+    CHECK_EQ(uniq.size(), 256);
+}
+
+TEST("a share round-trips through words") {
+    shamir::SeededRng rng(20);
+    auto shares = shamir::split(bytes("word me"), 3, 5, rng);  // 7-byte secret
+    std::string m = shamir::toMnemonic(shares[2], 3);
+
+    // word count == k-byte + x-byte + y + 2 checksum
+    std::size_t words = 1;
+    for (char c : m) if (c == ' ') ++words;
+    CHECK_EQ(words, 2 + 7 + 2);
+
+    auto d = shamir::fromMnemonic(m);
+    CHECK_EQ(d.k, 3);
+    CHECK_EQ(static_cast<int>(d.share.x), static_cast<int>(shares[2].x));
+    CHECK(d.share.y == shares[2].y);
+}
+
+TEST("mnemonic decoding is case-insensitive") {
+    shamir::SeededRng rng(21);
+    auto shares = shamir::split(bytes("CASE"), 2, 3, rng);
+    std::string m = shamir::toMnemonic(shares[0], 2);
+    std::string upper = m;
+    for (char& c : upper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    auto d = shamir::fromMnemonic(upper);
+    CHECK(d.share.y == shares[0].y);
+}
+
+TEST("the checksum catches a wrong word") {
+    shamir::SeededRng rng(22);
+    auto shares = shamir::split(bytes("guard"), 2, 3, rng);
+    std::string m = shamir::toMnemonic(shares[0], 2);
+    // replace the first word with a different valid word
+    std::string firstWord = m.substr(0, m.find(' '));
+    const std::string& w0 = shamir::wordlist()[0];
+    const std::string& w1 = shamir::wordlist()[1];
+    std::string swapped = (firstWord == w0 ? w1 : w0) + m.substr(m.find(' '));
+    bool threw = false;
+    try { shamir::fromMnemonic(swapped); } catch (const std::exception&) { threw = true; }
+    CHECK(threw);
+}
+
+TEST("unknown words are rejected") {
+    bool threw = false;
+    try { shamir::fromMnemonic("ba be notaword bo bu"); } catch (const std::exception&) { threw = true; }
+    CHECK(threw);
+}
+
+TEST("split -> mnemonics -> combine recovers the secret") {
+    shamir::SeededRng rng(23);
+    const Bytes secret = bytes("words as backup");
+    auto shares = shamir::split(secret, 3, 5, rng);
+    std::vector<std::string> mns;
+    for (int i : {1, 2, 4}) mns.push_back(shamir::toMnemonic(shares[i], 3));   // 3 of 5
+    CHECK(shamir::combineMnemonics(mns) == secret);
 }
